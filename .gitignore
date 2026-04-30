@@ -1,2 +1,28 @@
 .claude/
 .env
+
+# Data files
+*.bin
+*.pkl
+
+# Checkpoints and outputs
+out-*/
+logs/
+__pycache__/
+*.pyc
+*.pyo
+
+# Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

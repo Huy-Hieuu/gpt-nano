@@ -17,6 +17,7 @@ This document explains each component of GPT using analogies and step-by-step ex
 9. [The Transformer Block — Putting It Together](#9-the-transformer-block--putting-it-together)
 10. [Training — How the Model Learns](#10-training--how-the-model-learns)
 11. [Sampling — Generating Text](#11-sampling--generating-text)
+12. [Algorithm CheatSheet — Quick Reference](#algorithm-cheatsheet--quick-reference)
 
 ---
 
@@ -136,7 +137,56 @@ x = token_emb[tokens] + pos_emb[[0, 1, 2]]
 
 ## 4. Self-Attention — Tokens Talking to Each Other
 
-### The Problem
+### The Problem: Static Embeddings Aren't Enough
+
+**Why can't a single token embedding capture all meaning?**
+
+Because the same word can mean different things in different contexts:
+
+| Context | "bank" meaning |
+|---------|----------------|
+| "I went to the bank to **deposit money**" | Ngân hàng |
+| "I sat on the **river** bank" | Bờ sổ |
+| "The bank of clouds" | Vệt mây |
+
+A static embedding would give "bank" the **same vector** in all three sentences → impossible to distinguish!
+
+**The solution:** Let tokens "look at" each other and dynamically blend information based on context.
+
+---
+
+### The Intuition
+
+Self-attention lets every token "look at" every other token and decide **how much to pay attention to each one**.
+
+Imagine you're at a meeting:
+
+- You (token) have a **question** (Query)
+- Everyone else has **topics they know about** (Key)
+- When someone's topic matches your question, you **listen more** to their **answer** (Value)
+
+For "The cat sat on the mat":
+
+When processing token "sat" (ngồi):
+
+| Mechanism | Purpose |
+|-----------|---------|
+| **Q (Query)** of "sat" | "Tôi đang tìm kiếm AI đang ngồi?" |
+| **K (Key)** of "cat" | "Tôi là một chủ thể có thể ngồi" |
+| **K (Key)** of "mat" | "Tôi là một bề mặt, có thể được ngồi lên" |
+| **K (Key)** of "the" | "Tôi là determiner, không liên quan lắm" |
+
+Attention score = similarity(Q, K) → weighted sum of values:
+
+```
+new_sat = sat + 0.3×cat + 0.3×mat + 0.01×the + ...
+```
+
+Now "sat" carries contextual information from the whole sentence!
+
+---
+
+### The Original Problem: Reference Resolution
 
 "The **animal** didn't cross the street because **it** was too tired."
 
@@ -237,6 +287,7 @@ They come from **multiplying each token's embedding by the learned W_v matrix**.
 ```
 
 Think of it this way:
+
 - **Q (Query)** = the question you're asking about the sentence
 - **K (Key)** = the label on your forehead that says what you're about
 - **V (Value)** = the actual content / meaning you contribute if someone attends to you
@@ -261,8 +312,7 @@ scores = Q @ K.T = [
 
 #### Step 3: Scale and mask (causal - Causal means left-to-right only)
 
-The word comes from causality — cause and effect. In time/sequence, the past causes the present, but the
-  future cannot influence the past.
+The word comes from causality — cause and effect. In time/sequence, the past causes the present, but the future cannot influence the past.
 
   You write a sentence left to right. Word 5 exists because of words 1-4. Word 5 cannot influence words 1-4
   because it hasn't been written yet.
@@ -383,13 +433,66 @@ After attention, each token carries a **blend of information** from the tokens i
 
 ## 5. Multi-Head Attention — Multiple Perspectives
 
-### The Problem
+### The Problem: One Head Can't See Everything
 
 One set of Q, K, V can only capture one type of relationship. But language has many:
 
 - Grammar: "The **cat** **sat"** (subject-verb)
 - Reference: "**The cat** ... **it**" (pronoun resolution)
 - Position: "not **very** good" (adjacent modifiers)
+- Sentiment: "not very **good**" (negative)
+- Causality: "**because**" (reasoning)
+
+### Key Insight: Same Token, Multiple Q,K,V Pairs
+
+**Cùng một token → có nhiều Q, K, V khác nhau**
+
+Mỗi head học một "lens" (khía cạnh) khác nhau:
+
+```
+                    Head 1          Head 2          Head 3
+                    ┌─────┐        ┌─────┐        ┌─────┐
+                    │     │        │     │        │     │
+Token "chased" ──→  │ Q₁  │        │ Q₂  │        │ Q₃  │
+                    │ K₁  │        │ K₂  │        │ K₃  │
+                    │ V₁  │        │ V₂  │        │ V₃  │
+                    └─────┘        └─────┘        └─────┘
+                       │               │               │
+                       ↓               ↓               ↓
+                Focus on:     Focus on:     Focus on:
+               Subject (cat)   Action type   Object (mouse)
+```
+
+### Example: "The cat chased the mouse"
+
+| Head | Query pattern | What it focuses on | Learned pattern |
+|------|---------------|-------------------|-----------------|
+| **Head 1** | "AI đang làm hành động này?" | Subject | "chased" looks at "cat" (agent) |
+| **Head 2** | "Loại hành động gì?" | Verb semantics | Analyzes verb type |
+| **Head 3** | "AI bị ảnh hưởng?" | Object | "chased" looks at "mouse" (patient) |
+| **Head 4** | "Mối quan hệ ngữ pháp?" | Syntax | Subject-verb agreement |
+| **Head 5** | "Cảm xúc/t thái thái?" | Sentiment | If "chased" in negative context |
+
+### Why Not One Big Head?
+
+| 1 Head large (512 dim) | Multi-Head small (8×64) |
+|------------------------|------------------------|
+| Query vector 512 chiều | 8 head, mỗi head 64 chiều |
+| Học "tất cả" trong 1 vector | Mỗi head chuyên hóa 1 pattern |
+| Khó học nhiều pattern | 8 pattern khác nhau học song song |
+
+**Analogie:**
+- 1 head: 1 chuyên gia phải giải quyết mọi vấn đề
+- Multi-head: 8 chuyên gia, mỗi người giỏi 1 việc → tốt hơn
+
+### Example: "I didn't like the movie because it was boring"
+
+| Head | Focus | Giải thích |
+|------|-------|------------|
+| Head 1 | Syntax | "didn't" + "like" = phủ định |
+| Head 2 | Sentiment | "boring" = tiêu cực |
+| Head 3 | Causality | "because" liên kết reason |
+| Head 4 | Entity Resolution | "it" = "movie" (coreference) |
 
 ### The Solution
 
@@ -581,6 +684,65 @@ Batch Norm normalizes across the batch dimension — but:
 - Layer Norm normalizes per-token, per-position — independent of batch
 
 **Analogy**: Imagine each token's embedding is a student's test scores. Layer Norm converts everything to a standard scale (like grading on a curve), so no one layer's output overwhelms the next.
+
+### Bonus: BatchNorm (For Computer Vision, Not GPT)
+
+**Mục đích:** Chuẩn hóa đầu ra của mỗi layer để training ổn định và nhanh hơn.
+
+#### Vấn đề trước khi có BatchNorm
+
+```
+Layer 1 output:  [0.1, -500, 0.05, 800, ...]  ← Số bùng nổ
+Layer 2 input:   Phải xử lý range [-500, 800] → khó học
+```
+
+- Activations bị **Internal Covariate Shift** — mỗi layer thấy dữ liệu "nhảy" liên tục
+- Learning rate phải rất nhỏ để tránh gradient explode
+- Đi sâu vào mạng → activations có thể quá lớn/nhỏ → vanishing/exploding
+
+#### BatchNorm hoạt động thế nào?
+
+Đối với mỗi batch training:
+
+```python
+# Input: x có shape (batch_size, features)
+mean  = x.mean(dim=0)    # Trung bình mỗi feature
+std   = x.std(dim=0)     # Độ lệch chuẩn
+
+x_normalized = (x - mean) / (std + ε)   # ε để tránh chia 0
+
+x_out = γ × x_normalized + β           # γ, β là học được (scale, shift)
+```
+
+#### Tại sao cần γ và β?
+
+Nếu chỉ chuẩn hóa → luôn có mean=0, std=1 → **mất expressiveness**
+
+γ và β cho phép mạng **"re-center"** lại nếu cần:
+- Nếu layer muốn mean=5 → β sẽ học = 5
+- Nếu layer muốn range lớn hơn → γ > 1
+
+#### Tại sao BatchNorm giúp?
+
+| Trước BatchNorm | Sau BatchNorm |
+|-----------------|---------------|
+| Activations range [-500, 800] | Range ≈ [-2, 2] (stabilized) |
+| Learning rate nhỏ | Learning rate lớn hơn được |
+| Dễ gradient explode/vanish | Gradient ổn định hơn |
+| Training chậm | Training nhanh 2-5× |
+
+#### So sánh BatchNorm vs LayerNorm
+
+| | BatchNorm | LayerNorm |
+|---|-----------|-----------|
+| Normalize | Trên **batch dimension** | Trên **feature dimension** |
+| Shape | (B, C, H, W) → normalize theo B | (B, C, H, W) → normalize theo C |
+| Dùng khi | Batch size lớn | Batch size nhỏ (như Transformer) |
+| Ứng dụng | Computer Vision (CNN) | NLP (Transformer) |
+
+**Transformer dùng LayerNorm vì:**
+- Batch size thường nhỏ
+- Sequence length khác nhau → BatchNorm khó
 
 ---
 
@@ -866,3 +1028,67 @@ For the nano config (C=384, N=6, V=65, T=256):
 ```
   65×384 + 256×384 + 6×(12×384²) ≈ 10.7M parameters
 ```
+
+---
+
+## Algorithm CheatSheet — Quick Reference
+
+### L1: Core Ideas (One-liners to remember)
+
+| Algorithm | Core Idea |
+|-----------|-----------|
+| **Gradient Descent** | "Đi ngược dốc" — tăng x → loss tăng → giảm x |
+| **Backpropagation** | "Chain rule: lỗi từ cuối lan ngược về đầu" |
+| **Self-Attention** | "Weighted sum of values based on query-key similarity" |
+| **Multi-Head Attention** | "Cùng 1 token có nhiều lens khác nhau để nhìn câu" |
+| **LayerNorm** | "Chuẩn hóa từng token để activations ổn định" |
+| **BatchNorm** | "Chuẩn hóa theo batch để training nhanh hơn" |
+| **Residual Connection** | "x + layer(x) — thông tin gốc luôn chảy qua" |
+| **MLP** | "Attention thu thập info, MLP suy nghĩ về nó" |
+
+### L2: Pseudocode (3-5 lines)
+
+```python
+# Self-Attention
+scores = Q @ K.T / √d          # Similarity, scaled
+weights = softmax(scores)      # Normalize to probabilities
+output = weights @ V           # Weighted sum
+
+# Multi-Head Attention
+attn = softmax(Q @ K.T / √d) @ V   # Per head
+out = concat(attn₁, attn₂, ...)    # Merge heads
+out = out @ W_o                     # Final projection
+
+# LayerNorm
+x_norm = (x - mean(x)) / std(x)
+out = γ * x_norm + β
+
+# BatchNorm
+x_norm = (x - mean_batch) / std_batch
+out = γ * x_norm + β
+
+# Residual
+out = x + layer(x)
+```
+
+### L3: Key Dimensions
+
+| Symbol | Meaning | Typical Value (nano) |
+|--------|---------|---------------------|
+| B | Batch size | 16-64 |
+| T | Sequence length | 256 |
+| C (n_embd) | Embedding dimension | 384 |
+| H (n_head) | Number of heads | 6 |
+| C/H | Head size | 64 |
+| N (n_layer) | Number of blocks | 6 |
+| V | Vocabulary size | 65 (chars) or 50k (BPE) |
+
+### Learning Strategies for AI Algorithms
+
+1. **Nắm Core Idea (L1) trước** — nếu nhớ được 1 câu này → đã nhớ 80%
+2. **Liên kết với coding algorithms**:
+   - Backprop ↔ Recursion
+   - Attention ↔ Hash Map lookup (key → value, với similarity)
+   - Transformer ↔ Sliding window (mỗi token nhìn vào window = toàn câu)
+3. **Pyramidal Learning**: L1 → L2 → L3 (không nhảy thẳng L3)
+4. **Teach it**: Giải thích cho người khác (hoặc giả vờ) → cách nhớ lâu nhất
